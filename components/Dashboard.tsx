@@ -10,6 +10,37 @@ interface DashboardProps {
     otherConsumers: OtherConsumersStateMap;
 }
 
+// Configuration copied from TdhqPanel for consistency
+const rectifierConfig = {
+    A: {
+        ITN1: ["IT.1-SWB.REC A.1", "IT.1-SWB.REC A.2", "IT.1-SWB.REC A.3", "IT.1-SWB.REC A.4"],
+        ITN2: ["IT.2-SWB.REC A.1", "IT.2-SWB.REC A.2", "IT.2-SWB.REC A.3", "IT.2-SWB.REC A.4"],
+    },
+    B: {
+        ITN1: ["IT.1-SWB.REC B.1", "IT.1-SWB.REC B.2", "IT.1-SWB.REC B.3", "IT.1-SWB.REC B.4"],
+        ITN3: ["IT.3-SWB.REC B.1", "IT.3-SWB.REC B.2", "IT.3-SWB.REC B.3", "IT.3-SWB.REC B.4"],
+    },
+    C: {
+        ITN2: ["IT.2-SWB.REC C.1", "IT.2-SWB.REC C.2", "IT.2-SWB.REC C.3", "IT.2-SWB.REC C.4"],
+        ITN3: ["IT.3-SWB.REC C.1", "IT.3-SWB.REC C.2", "IT.3-SWB.REC C.3", "IT.3-SWB.REC C.4"],
+    }
+};
+
+const panelConfig: { [key in 'A' | 'B' | 'C']: { name: string, prefixes: string[] }[] } = {
+    A: [
+        { name: "TC.1.1-TDHQ.IT.A", prefixes: ["IT.1-TB.A.1", "IT.1-TB.A.2", "IT.1-TB.A.3", "IT.1-TB.A.4", "IT.1-TB.A.5"] },
+        { name: "TC.2.1-TDHQ.IT.A", prefixes: ["IT.2-TB.A.1", "IT.2-TB.A.2", "IT.2-TB.A.3", "IT.2-TB.A.4", "IT.2-TB.A.5"] },
+    ],
+    B: [
+        { name: "TC.1.1-TDHQ.IT.B", prefixes: ["IT.1-TB.B.1", "IT.1-TB.B.2", "IT.1-TB.B.3", "IT.1-TB.B.4", "IT.1-TB.B.5"] },
+        { name: "TC.3.1-TDHQ.IT.B", prefixes: ["IT.3-TB.B.1", "IT.3-TB.B.2", "IT.3-TB.B.3", "IT.3-TB.B.4", "IT.3-TB.B.5"] },
+    ],
+    C: [
+        { name: "TC.2.2-TDHQ.IT.C", prefixes: ["IT.2-TB.C.1", "IT.2-TB.C.2", "IT.2-TB.C.3", "IT.2-TB.C.4", "IT.2-TB.C.5"] },
+        { name: "TC.3.2-TDHQ.IT.C", prefixes: ["IT.3-TB.C.1", "IT.3-TB.C.2", "IT.3-TB.C.3", "IT.3-TB.C.4", "IT.3-TB.C.5"] },
+    ]
+};
+
 const StatCard: React.FC<{
     title: string;
     value: string | number;
@@ -41,40 +72,78 @@ const Dashboard: React.FC<DashboardProps> = ({ racks, onRackClick, otherConsumer
 
     const stats = useMemo(() => {
         const totalRacks = racks.length;
+
+        const powerByRoom: { [key in Room | string]: { ac: number, dc: number, total: number } } = {
+            ITN1: { ac: 0, dc: 0, total: 0 },
+            ITN2: { ac: 0, dc: 0, total: 0 },
+            ITN3: { ac: 0, dc: 0, total: 0 },
+        };
+        const highPowerRacksList: Rack[] = [];
+
+        const prefixesByRoom: { [key in Room]: { ac: string[], dc: string[] } } = {
+            ITN1: { ac: [], dc: [] },
+            ITN2: { ac: [], dc: [] },
+            ITN3: { ac: [], dc: [] },
+        };
         
-        const totalRackPower = racks.reduce((acc, rack) => {
-            return acc + rack.P_Voie1_Ph1 + rack.P_Voie1_Ph2 + rack.P_Voie1_Ph3 + rack.P_Voie1_DC +
-                   rack.P_Voie2_Ph1 + rack.P_Voie2_Ph2 + rack.P_Voie2_Ph3 + rack.P_Voie2_DC;
-        }, 0);
+        for (const room of ['ITN1', 'ITN2', 'ITN3'] as const) {
+            const roomNumber = room.slice(-1);
+            const roomPanelPrefix = `tc.${roomNumber}.`;
+        
+            prefixesByRoom[room].ac = (['A', 'B', 'C'] as const)
+                .flatMap(chain => panelConfig[chain])
+                .filter(panel => panel.name.toLowerCase().startsWith(roomPanelPrefix))
+                .flatMap(panel => panel.prefixes)
+                .map(p => p.trim().toLowerCase());
+            
+            prefixesByRoom[room].dc = (['A', 'B', 'C'] as const)
+                .flatMap(chain => rectifierConfig[chain][room] || [])
+                .map(p => p.trim().toLowerCase());
+        }
+        
+        let totalRackPower = 0;
+        
+        racks.forEach(rack => {
+            let rackAC = 0;
+            let rackDC = 0;
+            const room = rack.Salle as Room;
+
+            if (room !== 'ITN1' && room !== 'ITN2' && room !== 'ITN3') return;
+        
+            const validAcPrefixesForRoom = prefixesByRoom[room].ac;
+            const validDcPrefixesForRoom = prefixesByRoom[room].dc;
+
+            const processVoie = (source: string, p1: number, p2: number, p3: number, dc: number) => {
+                if (!source) return;
+                const s = source.trim().toLowerCase();
+                if (validAcPrefixesForRoom.some(p => s.startsWith(p))) {
+                    rackAC += p1 + p2 + p3;
+                }
+                if (validDcPrefixesForRoom.some(p => s.startsWith(p))) {
+                    rackDC += dc;
+                }
+            };
+            
+            processVoie(rack.Canalis_Redresseur_Voie1, rack.P_Voie1_Ph1, rack.P_Voie1_Ph2, rack.P_Voie1_Ph3, rack.P_Voie1_DC);
+            processVoie(rack.Canalis_Redresseur_Voie2, rack.P_Voie2_Ph1, rack.P_Voie2_Ph2, rack.P_Voie2_Ph3, rack.P_Voie2_DC);
+            
+            const rackTotal = rackAC + rackDC;
+            totalRackPower += rackTotal;
+
+            powerByRoom[room].ac += rackAC;
+            powerByRoom[room].dc += rackDC;
+            powerByRoom[room].total += rackTotal;
+            
+            if (rack.Puissance_PDU > 0 && (rackTotal / rack.Puissance_PDU) > 0.8) {
+                highPowerRacksList.push(rack);
+            }
+        });
 
         const otherConsumersAC = Object.values(otherConsumers).reduce((acc, chain) => acc + chain.acP1 + chain.acP2 + chain.acP3, 0);
         const otherConsumersDC = Object.values(otherConsumers).reduce((acc, chain) => acc + chain.dc, 0);
         const totalOtherConsumersPower = otherConsumersAC + otherConsumersDC;
         
         const totalPower = totalRackPower + totalOtherConsumersPower;
-        
-        const powerByRoom: { [key in Room | string]: { ac: number, dc: number, total: number } } = {
-            ITN1: { ac: 0, dc: 0, total: 0 },
-            ITN2: { ac: 0, dc: 0, total: 0 },
-            ITN3: { ac: 0, dc: 0, total: 0 },
-        };
-
-        const highPowerRacksList: Rack[] = [];
-        racks.forEach(rack => {
-            const rackAC = rack.P_Voie1_Ph1 + rack.P_Voie1_Ph2 + rack.P_Voie1_Ph3 + rack.P_Voie2_Ph1 + rack.P_Voie2_Ph2 + rack.P_Voie2_Ph3;
-            const rackDC = rack.P_Voie1_DC + rack.P_Voie2_DC;
-            const rackTotal = rackAC + rackDC;
-
-            if (rack.Salle === 'ITN1' || rack.Salle === 'ITN2' || rack.Salle === 'ITN3') {
-                powerByRoom[rack.Salle].ac += rackAC;
-                powerByRoom[rack.Salle].dc += rackDC;
-                powerByRoom[rack.Salle].total += rackTotal;
-            }
-            
-            if (rack.Puissance_PDU > 0 && (rackTotal / rack.Puissance_PDU) > 0.8) {
-                highPowerRacksList.push(rack);
-            }
-        });
 
         const chartData = [
             { name: 'ITN1', 'Consumed Power': parseFloat(powerByRoom.ITN1.total.toFixed(1)), 'Max Capacity': 500 },
@@ -91,7 +160,7 @@ const Dashboard: React.FC<DashboardProps> = ({ racks, onRackClick, otherConsumer
         <div className="space-y-6">
             <h2 className="text-3xl font-bold text-white">Global Dashboard</h2>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                  <StatCard 
                     title="Total Racks" 
                     value={stats.totalRacks} 
@@ -130,6 +199,13 @@ const Dashboard: React.FC<DashboardProps> = ({ racks, onRackClick, otherConsumer
                     subtitle={`AC: ${stats.itn2Load.ac.toFixed(1)}kW | DC: ${stats.itn2Load.dc.toFixed(1)}kW`}
                     icon={<RowIcon className="text-purple-300"/>} 
                     colorClass="bg-purple-600/30"
+                />
+                 <StatCard 
+                    title="ITN3 Power Load" 
+                    value={`${stats.itn3Load.total.toFixed(1)} kW`}
+                    subtitle={`AC: ${stats.itn3Load.ac.toFixed(1)}kW | DC: ${stats.itn3Load.dc.toFixed(1)}kW`}
+                    icon={<RowIcon className="text-orange-500"/>} 
+                    colorClass="bg-orange-600/30"
                 />
             </div>
             

@@ -18,6 +18,23 @@ const emptyRack: Omit<Rack, 'id'> = {
     P_Voie1_Ph3: 0, P_Voie1_DC: 0, P_Voie2_Ph1: 0, P_Voie2_Ph2: 0, P_Voie2_Ph3: 0, P_Voie2_DC: 0,
 };
 
+// Define which fields should be treated as numbers.
+const NUMERIC_FIELDS: (keyof Rack)[] = [
+    'Largeur_mm', 'Puissance_PDU', 'Moyenne_Capacitaire_Rack', 'P_Voie1_Ph1', 'P_Voie1_Ph2',
+    'P_Voie1_Ph3', 'P_Voie1_DC', 'P_Voie2_Ph1', 'P_Voie2_Ph2', 'P_Voie2_Ph3', 'P_Voie2_DC'
+];
+
+// Robustly parse a value into a number, handling various formats.
+const flexibleParseFloat = (value: any): number => {
+    if (value === null || value === undefined) return 0;
+    let strValue = String(value).trim();
+    if (strValue === '') return 0;
+    strValue = strValue.replace(',', '.'); // Handle French decimal format
+    const num = parseFloat(strValue);
+    return isNaN(num) ? 0 : num;
+};
+
+
 const RackDetailModal: React.FC<RackDetailModalProps> = ({ rack, isAdding, onClose, onSave, onDelete }) => {
     const [formData, setFormData] = useState<Rack | Omit<Rack, 'id'>>(isAdding ? emptyRack : rack!);
     const [isEditing, setIsEditing] = useState(isAdding);
@@ -33,12 +50,22 @@ const RackDetailModal: React.FC<RackDetailModalProps> = ({ rack, isAdding, onClo
     };
 
     const handleSave = () => {
-        // Simple validation
         if (!formData.Rack) {
             alert("Rack identifier is required.");
             return;
         }
-        onSave(formData);
+
+        // Create a copy to sanitize before saving.
+        const dataToSave = { ...formData };
+
+        // Ensure all numeric fields are actual numbers, not strings.
+        for (const key in dataToSave) {
+            if (NUMERIC_FIELDS.includes(key as keyof Rack)) {
+                (dataToSave as any)[key] = flexibleParseFloat((dataToSave as any)[key]);
+            }
+        }
+
+        onSave(dataToSave);
     };
     
     const renderField = (label: string, name: keyof Rack, type = 'text') => {
@@ -50,7 +77,6 @@ const RackDetailModal: React.FC<RackDetailModalProps> = ({ rack, isAdding, onClo
                     type === 'select' ? (
                         <select
                             id={name} name={name} 
-// FIX: The value of a select element must be a string.
                             value={String(value)} onChange={handleChange}
                             className="col-span-2 bg-gray-700 border border-gray-600 rounded-md p-2 text-sm focus:ring-blue-500 focus:border-blue-500">
                              <option value="ITN1">ITN1</option>

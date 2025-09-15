@@ -6,6 +6,8 @@ interface PowerChainsViewProps {
     racks: Rack[];
     otherConsumers: OtherConsumersStateMap;
     setOtherConsumers: React.Dispatch<React.SetStateAction<OtherConsumersStateMap>>;
+    saveData: (racks: Rack[], consumers: OtherConsumersStateMap) => Promise<void>;
+    setAppError: (error: string | null) => void;
 }
 
 const rectifierConfig = {
@@ -43,7 +45,8 @@ const OtherConsumersCard: React.FC<{
     values: OtherConsumersState;
     onApply: (newValues: OtherConsumersState) => void;
     disabled: boolean;
-}> = ({ chain, values, onApply, disabled }) => {
+    isSaving: boolean;
+}> = ({ chain, values, onApply, disabled, isSaving }) => {
     const [localState, setLocalState] = useState(values);
 
     useEffect(() => {
@@ -78,7 +81,7 @@ const OtherConsumersCard: React.FC<{
                     disabled={disabled}
                     className={`bg-blue-600 hover:bg-blue-700 text-white font-bold py-1 px-3 rounded-md text-sm transition ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
-                    Apply Changes
+                    {isSaving ? 'Saving...' : 'Apply Changes'}
                 </button>
             </div>
         </div>
@@ -101,9 +104,10 @@ const PhaseCard: React.FC<{ label: string; load: number; capacity: number }> = (
 };
 
 
-const PowerChainsView: React.FC<PowerChainsViewProps> = ({ racks, otherConsumers, setOtherConsumers }) => {
+const PowerChainsView: React.FC<PowerChainsViewProps> = ({ racks, otherConsumers, setOtherConsumers, saveData, setAppError }) => {
     const [efficiency, setEfficiency] = useState(96);
     const [failedChains, setFailedChains] = useState<Set<'A' | 'B' | 'C'>>(new Set());
+    const [isSavingConsumers, setIsSavingConsumers] = useState(false);
 
     const handleToggleChain = (chain: 'A' | 'B' | 'C') => {
         setFailedChains(prev => {
@@ -147,38 +151,57 @@ const PowerChainsView: React.FC<PowerChainsViewProps> = ({ racks, otherConsumers
     }, [otherConsumers, failedChains]);
 
     const calculationResults = useMemo(() => {
-        const roomChainMapping: { [key in Room]?: { voie1: 'A' | 'B' | 'C', voie2: 'A' | 'B' | 'C' } } = {
-            ITN1: { voie1: 'A', voie2: 'B' },
-            ITN2: { voie1: 'A', voie2: 'C' },
-            ITN3: { voie1: 'B', voie2: 'C' },
+        const getChainFromSource = (source: string): 'A' | 'B' | 'C' | null => {
+            if (!source) return null;
+            const s = source.trim().toUpperCase();
+            const match = s.match(/(?:[.-]|\s)([ABC])(?:[.-]|\s|$)/); 
+            if (match && match[1]) {
+                return match[1] as 'A' | 'B' | 'C';
+            }
+            const matchRec = s.match(/REC\s([ABC])/);
+            if (matchRec && matchRec[1]) {
+                return matchRec[1] as 'A' | 'B' | 'C';
+            }
+            return null;
         };
 
         const simulatedRacks = racks.map(rack => {
-            const mapping = roomChainMapping[rack.Salle as Room];
-            if (!mapping) return rack;
+            if (failedChains.size === 0) return rack;
 
-            const v1ChainFailed = failedChains.has(mapping.voie1);
-            const v2ChainFailed = failedChains.has(mapping.voie2);
+            const chain1 = getChainFromSource(rack.Canalis_Redresseur_Voie1);
+            const chain2 = getChainFromSource(rack.Canalis_Redresseur_Voie2);
 
-            if (!v1ChainFailed && !v2ChainFailed) return rack;
-            if (v1ChainFailed && v2ChainFailed) {
-                 return { ...rack, P_Voie1_Ph1: 0, P_Voie1_Ph2: 0, P_Voie1_Ph3: 0, P_Voie1_DC: 0, P_Voie2_Ph1: 0, P_Voie2_Ph2: 0, P_Voie2_Ph3: 0, P_Voie2_DC: 0 };
+            const is_v1_active = chain1 && !failedChains.has(chain1);
+            const is_v2_active = chain2 && !failedChains.has(chain2);
+
+            if ((is_v1_active && is_v2_active) || (!is_v1_active && !is_v2_active)) {
+                return rack;
+            }
+
+            const finalRack = { ...rack };
+            const v1_power = { p1: rack.P_Voie1_Ph1, p2: rack.P_Voie1_Ph2, p3: rack.P_Voie1_Ph3, dc: rack.P_Voie1_DC };
+            const v2_power = { p1: rack.P_Voie2_Ph1, p2: rack.P_Voie2_Ph2, p3: rack.P_Voie2_Ph3, dc: rack.P_Voie2_DC };
+        
+            if (is_v1_active && !is_v2_active) { // V1 ok, V2 failed or absent
+                finalRack.P_Voie1_Ph1 += v2_power.p1;
+                finalRack.P_Voie1_Ph2 += v2_power.p2;
+                finalRack.P_Voie1_Ph3 += v2_power.p3;
+                finalRack.P_Voie1_DC  += v2_power.dc;
+                finalRack.P_Voie2_Ph1 = 0; finalRack.P_Voie2_Ph2 = 0; finalRack.P_Voie2_Ph3 = 0; finalRack.P_Voie2_DC = 0;
+            } else if (!is_v1_active && is_v2_active) { // V1 failed or absent, V2 ok
+                finalRack.P_Voie2_Ph1 += v1_power.p1;
+                finalRack.P_Voie2_Ph2 += v1_power.p2;
+                finalRack.P_Voie2_Ph3 += v1_power.p3;
+                finalRack.P_Voie2_DC  += v1_power.dc;
+                finalRack.P_Voie1_Ph1 = 0; finalRack.P_Voie1_Ph2 = 0; finalRack.P_Voie1_Ph3 = 0; finalRack.P_Voie1_DC = 0;
+            } else { // Both voies are inactive (logically unreachable due to first if, but kept for safety)
+                finalRack.P_Voie1_Ph1 = 0; finalRack.P_Voie1_Ph2 = 0; finalRack.P_Voie1_Ph3 = 0; finalRack.P_Voie1_DC = 0;
+                finalRack.P_Voie2_Ph1 = 0; finalRack.P_Voie2_Ph2 = 0; finalRack.P_Voie2_Ph3 = 0; finalRack.P_Voie2_DC = 0;
             }
             
-            const newRack = { ...rack };
-            if (v1ChainFailed) { // Transfer v1 to v2
-                newRack.P_Voie2_Ph1 += rack.P_Voie1_Ph1; newRack.P_Voie1_Ph1 = 0;
-                newRack.P_Voie2_Ph2 += rack.P_Voie1_Ph2; newRack.P_Voie1_Ph2 = 0;
-                newRack.P_Voie2_Ph3 += rack.P_Voie1_Ph3; newRack.P_Voie1_Ph3 = 0;
-                newRack.P_Voie2_DC  += rack.P_Voie1_DC;  newRack.P_Voie1_DC = 0;
-            } else { // v2ChainFailed, transfer v2 to v1
-                newRack.P_Voie1_Ph1 += rack.P_Voie2_Ph1; newRack.P_Voie2_Ph1 = 0;
-                newRack.P_Voie1_Ph2 += rack.P_Voie2_Ph2; newRack.P_Voie2_Ph2 = 0;
-                newRack.P_Voie1_Ph3 += rack.P_Voie2_Ph3; newRack.P_Voie2_Ph3 = 0;
-                newRack.P_Voie1_DC  += rack.P_Voie2_DC;  newRack.P_Voie2_DC = 0;
-            }
-            return newRack;
+            return finalRack;
         });
+
 
         const results: { [key in 'A' | 'B' | 'C']: {
             totalLoad: { p1: number, p2: number, p3: number };
@@ -248,8 +271,21 @@ const PowerChainsView: React.FC<PowerChainsViewProps> = ({ racks, otherConsumers
         return results;
     }, [racks, efficiency, failedChains, simulatedOtherConsumers]);
     
-    const handleApplyConsumers = (chain: 'A' | 'B' | 'C', newValues: OtherConsumersState) => {
-        setOtherConsumers(prev => ({...prev, [chain]: newValues}));
+    const handleApplyConsumers = async (chain: 'A' | 'B' | 'C', newValues: OtherConsumersState) => {
+        const newConsumersState = { ...otherConsumers, [chain]: newValues };
+        const originalConsumers = otherConsumers;
+        setOtherConsumers(newConsumersState); // Optimistic update
+
+        setIsSavingConsumers(true);
+        setAppError(null);
+        try {
+            await saveData(racks, newConsumersState);
+        } catch (e: any) {
+            setAppError(`Save failed: ${e.message}`);
+            setOtherConsumers(originalConsumers); // Revert on failure
+        } finally {
+            setIsSavingConsumers(false);
+        }
     };
 
     const capacityPerPhase = 1000 / 3;
@@ -335,7 +371,8 @@ const PowerChainsView: React.FC<PowerChainsViewProps> = ({ racks, otherConsumers
                                     chain={chain} 
                                     values={simulatedOtherConsumers[chain]} 
                                     onApply={(newValues) => handleApplyConsumers(chain, newValues)} 
-                                    disabled={failedChains.size > 0}
+                                    disabled={failedChains.size > 0 || isSavingConsumers}
+                                    isSaving={isSavingConsumers}
                                 />
                             </div>
                         </div>

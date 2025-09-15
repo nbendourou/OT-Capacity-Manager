@@ -1,12 +1,13 @@
-import React, { useRef } from 'react';
+import React from 'react';
 import type { Room } from '../types';
-import { AddIcon, PowerChainIcon, DashboardIcon, DownloadIcon, RoomIcon, UploadIcon, ReportIcon } from './icons';
+import { AddIcon, PowerChainIcon, DashboardIcon, SaveIcon, RoomIcon, RefreshIcon, ReportIcon } from './icons';
 
 interface HeaderProps {
     currentView: string;
     onNavigate: (view: 'dashboard' | 'ITN1' | 'ITN2' | 'ITN3' | 'powerChains' | 'reporting') => void;
-    onLoadData: (file: File) => void;
+    onRefreshData: () => void;
     onSaveData: () => void;
+    isSaving: boolean;
     onAddRack: () => void;
     searchTerm: string;
     setSearchTerm: (term: string) => void;
@@ -18,21 +19,9 @@ interface HeaderProps {
 }
 
 const Header: React.FC<HeaderProps> = ({
-    currentView, onNavigate, onLoadData, onSaveData, onAddRack,
+    currentView, onNavigate, onRefreshData, onSaveData, isSaving, onAddRack,
     searchTerm, setSearchTerm, filterRoom, setFilterRoom, filterRow, setFilterRow, uniqueRows
 }) => {
-    const fileInputRef = useRef<HTMLInputElement>(null);
-
-    const handleLoadClick = () => {
-        fileInputRef.current?.click();
-    };
-
-    const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-        if (event.target.files && event.target.files[0]) {
-            onLoadData(event.target.files[0]);
-            event.target.value = ''; // Reset file input
-        }
-    };
 
     const NavButton = ({ view, label, icon }: { view: 'dashboard' | 'ITN1' | 'ITN2' | 'ITN3' | 'powerChains' | 'reporting', label: string, icon: JSX.Element }) => (
         <button
@@ -50,8 +39,8 @@ const Header: React.FC<HeaderProps> = ({
 
     return (
         <header className="bg-gray-800 shadow-lg sticky top-0 z-10">
-            <div className="container mx-auto px-4 py-3">
-                <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+            <div className="container mx-auto px-4 py-3 space-y-3">
+                <div className="flex flex-col md:flex-row items-center justify-between gap-3">
                     <div className="flex items-center space-x-2">
                         <h1 className="text-xl font-bold text-white whitespace-nowrap">Capacity Manager</h1>
                         <nav className="flex items-center space-x-1 bg-gray-900/50 p-1 rounded-lg">
@@ -67,16 +56,16 @@ const Header: React.FC<HeaderProps> = ({
                         <button onClick={onAddRack} className="flex items-center bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-md transition-colors duration-200">
                            <AddIcon /> <span className="ml-2 hidden sm:inline">Add Rack</span>
                         </button>
-                        <button onClick={handleLoadClick} className="flex items-center bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md transition-colors duration-200">
-                           <UploadIcon /> <span className="ml-2 hidden sm:inline">Load Data</span>
+                        <button onClick={onRefreshData} className="flex items-center bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md transition-colors duration-200">
+                           <RefreshIcon /> <span className="ml-2 hidden sm:inline">Refresh Data</span>
                         </button>
-                        <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept=".xlsx, .xls" />
-                        <button onClick={onSaveData} className="flex items-center bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-md transition-colors duration-200">
-                           <DownloadIcon /> <span className="ml-2 hidden sm:inline">Save Data</span>
+                        <button onClick={onSaveData} disabled={isSaving} className="flex items-center bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-md transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed">
+                           <SaveIcon /> <span className="ml-2 hidden sm:inline">{isSaving ? 'Saving...' : 'Save'}</span>
                         </button>
                     </div>
                 </div>
-                <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-4">
+                
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                      <input
                         type="text"
                         placeholder="Search by Rack, Designation..."

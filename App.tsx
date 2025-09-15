@@ -5,23 +5,29 @@ import RoomPowerView from './components/RoomPowerView';
 import RackDetailModal from './components/RackDetailModal';
 import PowerChainsView from './components/TdhqPanel';
 import Reporting from './components/Reporting';
-import { useDb } from './hooks/useDb';
-import type { Rack, Room, OtherConsumersStateMap } from './types';
+import { useGoogleSheet } from './hooks/useGoogleSheet';
+import type { Rack, Room } from './types';
 import WelcomeScreen from './components/WelcomeScreen';
 
 type View = 'dashboard' | 'ITN1' | 'ITN2' | 'ITN3' | 'powerChains' | 'reporting';
 
 function App() {
     const { 
-        db, loading, error, initializeDb, importXlsxData, 
-        addRack, updateRack, deleteRack, exportToXlsx, getRacks 
-    } = useDb();
+        racks, 
+        otherConsumers, 
+        loading, 
+        error, 
+        loadData, 
+        addRack, 
+        updateRack, 
+        deleteRack, 
+        saveData,
+        setOtherConsumers,
+    } = useGoogleSheet();
     
-    const [racks, setRacks] = useState<Rack[]>([]);
     const [currentView, setCurrentView] = useState<View>('dashboard');
-    const [isDbReady, setIsDbReady] = useState(false);
     const [appError, setAppError] = useState<string | null>(null);
-    const [isProcessing, setIsProcessing] = useState(false);
+    const [isSaving, setIsSaving] = useState(false);
 
     const [selectedRack, setSelectedRack] = useState<Rack | null>(null);
     const [isAddingRack, setIsAddingRack] = useState(false);
@@ -30,50 +36,22 @@ function App() {
     const [filterRoom, setFilterRoom] = useState<Room | 'all'>('all');
     const [filterRow, setFilterRow] = useState('');
     
-    const [otherConsumers, setOtherConsumers] = useState<OtherConsumersStateMap>({
-        A: { acP1: 8.28, acP2: 8.28, acP3: 8.28, dc: 5 },
-        B: { acP1: 6.29, acP2: 6.29, acP3: 6.29, dc: 5 },
-        C: { acP1: 7.31, acP2: 7.31, acP3: 7.31, dc: 5 },
-    });
-
-    const refreshRacks = useCallback(async () => {
-        if (db) {
-            const data = await getRacks();
-            setRacks(data);
-        }
-    }, [db, getRacks]);
-
     useEffect(() => {
-        initializeDb().then(() => {
-            setIsDbReady(true);
-        });
-    }, [initializeDb]);
-
-    useEffect(() => {
-        if (isDbReady) {
-            refreshRacks();
-        }
-    }, [isDbReady, refreshRacks]);
-
+        loadData();
+    }, [loadData]);
+    
     useEffect(() => {
         if(error) setAppError(error);
     }, [error]);
 
-    const handleLoadData = async (file: File) => {
+    const handleRefreshData = useCallback(async () => {
         setAppError(null);
-        setIsProcessing(true);
         try {
-            const { importedConsumers } = await importXlsxData(file);
-            if (importedConsumers) {
-                setOtherConsumers(importedConsumers);
-            }
-            await refreshRacks();
+            await loadData();
         } catch (e: any) {
-            setAppError(`Load failed: ${e.message}`);
-        } finally {
-            setIsProcessing(false);
+            setAppError(`Refresh failed: ${e.message}`);
         }
-    };
+    }, [loadData]);
     
     const handleSaveData = async () => {
         if (racks.length === 0) {
@@ -81,13 +59,14 @@ function App() {
             return;
         }
         setAppError(null);
-        setIsProcessing(true);
+        setIsSaving(true);
         try {
-            await exportToXlsx(racks, otherConsumers);
+            await saveData(racks, otherConsumers);
+            alert("Data has been successfully saved to your Google Sheet!");
         } catch (e: any) {
             setAppError(`Save failed: ${e.message}`);
         } finally {
-            setIsProcessing(false);
+            setIsSaving(false);
         }
     };
     
@@ -110,11 +89,10 @@ function App() {
         setAppError(null);
         try {
             if ('id' in rackData) {
-                await updateRack(rackData as Rack);
+                updateRack(rackData as Rack);
             } else {
-                await addRack(rackData);
+                addRack(rackData);
             }
-            await refreshRacks();
             handleCloseModal();
         } catch (e: any) {
             setAppError(e.message);
@@ -125,8 +103,7 @@ function App() {
         if (window.confirm(`Are you sure you want to delete rack ${rack.Rack} from room ${rack.Salle}?`)) {
             setAppError(null);
             try {
-                await deleteRack(rack);
-                await refreshRacks();
+                deleteRack(rack);
                 handleCloseModal();
             } catch (e: any) {
                 setAppError(e.message);
@@ -149,19 +126,23 @@ function App() {
         });
     }, [racks, searchTerm, filterRoom, filterRow]);
 
-    const uniqueRows = useMemo(() => {
+    const uniqueRows = useMemo((): string[] => {
         const rows = new Set(racks.map(r => r.Rangée).filter(Boolean));
         return Array.from(rows).sort();
     }, [racks]);
 
-    if (loading || !isDbReady) {
-        return <div className="flex items-center justify-center min-h-screen bg-gray-900 text-white">Initializing Application...</div>;
+    if (loading && racks.length === 0) {
+        return <WelcomeScreen onReload={handleRefreshData} isLoading={true} />;
     }
 
     const renderView = () => {
         const roomRacks = (currentView === 'ITN1' || currentView === 'ITN2' || currentView === 'ITN3')
             ? racks.filter(r => r.Salle === currentView)
             : filteredRacks;
+        
+        if (racks.length === 0 && !loading && !error) {
+             return <WelcomeScreen onReload={handleRefreshData} />;
+        }
         
         if (racks.length === 0 && !['dashboard', 'reporting'].includes(currentView)) {
              setCurrentView('dashboard');
@@ -175,7 +156,7 @@ function App() {
             case 'ITN3':
                 return <RoomPowerView racks={roomRacks} room={currentView} onRackClick={handleSelectRack} />;
             case 'powerChains':
-                return <PowerChainsView racks={racks} otherConsumers={otherConsumers} setOtherConsumers={setOtherConsumers} />;
+                return <PowerChainsView racks={racks} otherConsumers={otherConsumers} setOtherConsumers={setOtherConsumers} saveData={saveData} setAppError={setAppError} />;
             case 'reporting':
                 return <Reporting racks={racks} />;
             default:
@@ -188,8 +169,9 @@ function App() {
             <Header
                 currentView={currentView}
                 onNavigate={(view) => setCurrentView(view)}
-                onLoadData={handleLoadData}
+                onRefreshData={handleRefreshData}
                 onSaveData={handleSaveData}
+                isSaving={isSaving}
                 onAddRack={handleAddRack}
                 searchTerm={searchTerm}
                 setSearchTerm={setSearchTerm}
@@ -201,11 +183,11 @@ function App() {
             />
 
             <main className="container mx-auto p-4">
-                {isProcessing && <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"><div className="text-xl">Processing data...</div></div>}
+                {(loading || isSaving) && <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"><div className="text-xl">{isSaving ? 'Saving data to Google Sheet...' : 'Loading data...'}</div></div>}
                 {appError && <div className="bg-red-800 border border-red-600 text-white p-4 rounded-lg mb-4" role="alert" onClick={() => setAppError(null)}>{appError}</div>}
                  
-                {racks.length === 0 && !isProcessing ? (
-                    <WelcomeScreen />
+                {racks.length === 0 && !loading && error ? (
+                    <WelcomeScreen onReload={handleRefreshData} error={error} />
                 ) : (
                     renderView()
                 )}

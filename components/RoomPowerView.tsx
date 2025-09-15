@@ -8,6 +8,37 @@ interface RoomPowerViewProps {
     onRackClick: (rack: Rack) => void;
 }
 
+// Configuration copied from TdhqPanel for consistency
+const rectifierConfig = {
+    A: {
+        ITN1: ["IT.1-SWB.REC A.1", "IT.1-SWB.REC A.2", "IT.1-SWB.REC A.3", "IT.1-SWB.REC A.4"],
+        ITN2: ["IT.2-SWB.REC A.1", "IT.2-SWB.REC A.2", "IT.2-SWB.REC A.3", "IT.2-SWB.REC A.4"],
+    },
+    B: {
+        ITN1: ["IT.1-SWB.REC B.1", "IT.1-SWB.REC B.2", "IT.1-SWB.REC B.3", "IT.1-SWB.REC B.4"],
+        ITN3: ["IT.3-SWB.REC B.1", "IT.3-SWB.REC B.2", "IT.3-SWB.REC B.3", "IT.3-SWB.REC B.4"],
+    },
+    C: {
+        ITN2: ["IT.2-SWB.REC C.1", "IT.2-SWB.REC C.2", "IT.2-SWB.REC C.3", "IT.2-SWB.REC C.4"],
+        ITN3: ["IT.3-SWB.REC C.1", "IT.3-SWB.REC C.2", "IT.3-SWB.REC C.3", "IT.3-SWB.REC C.4"],
+    }
+};
+
+const panelConfig: { [key in 'A' | 'B' | 'C']: { name: string, prefixes: string[] }[] } = {
+    A: [
+        { name: "TC.1.1-TDHQ.IT.A", prefixes: ["IT.1-TB.A.1", "IT.1-TB.A.2", "IT.1-TB.A.3", "IT.1-TB.A.4", "IT.1-TB.A.5"] },
+        { name: "TC.2.1-TDHQ.IT.A", prefixes: ["IT.2-TB.A.1", "IT.2-TB.A.2", "IT.2-TB.A.3", "IT.2-TB.A.4", "IT.2-TB.A.5"] },
+    ],
+    B: [
+        { name: "TC.1.1-TDHQ.IT.B", prefixes: ["IT.1-TB.B.1", "IT.1-TB.B.2", "IT.1-TB.B.3", "IT.1-TB.B.4", "IT.1-TB.B.5"] },
+        { name: "TC.3.1-TDHQ.IT.B", prefixes: ["IT.3-TB.B.1", "IT.3-TB.B.2", "IT.3-TB.B.3", "IT.3-TB.B.4", "IT.3-TB.B.5"] },
+    ],
+    C: [
+        { name: "TC.2.2-TDHQ.IT.C", prefixes: ["IT.2-TB.C.1", "IT.2-TB.C.2", "IT.2-TB.C.3", "IT.2-TB.C.4", "IT.2-TB.C.5"] },
+        { name: "TC.3.2-TDHQ.IT.C", prefixes: ["IT.3-TB.C.1", "IT.3-TB.C.2", "IT.3-TB.C.3", "IT.3-TB.C.4", "IT.3-TB.C.5"] },
+    ]
+};
+
 const getUtilizationColor = (value: number, capacity: number) => {
     if (capacity === 0) return 'bg-gray-600';
     const utilization = value / capacity;
@@ -146,6 +177,10 @@ const RoomPowerView: React.FC<RoomPowerViewProps> = ({ racks, room, onRackClick 
         if (match && match[1]) {
             return match[1].toUpperCase() as 'A' | 'B' | 'C';
         }
+        const matchRec = source.match(/REC\s([ABC])/i);
+        if (matchRec && matchRec[1]) {
+            return matchRec[1].toUpperCase() as 'A'|'B'|'C';
+        }
         return null;
     };
 
@@ -165,28 +200,41 @@ const RoomPowerView: React.FC<RoomPowerViewProps> = ({ racks, room, onRackClick 
 
             rowData.racks.push(rack);
 
-            const processVoie = (source: string, p1: number, p2: number, p3: number, dc: number) => {
-                if (!source) return;
+            const processSingleVoie = (sourceStr: string, p1: number, p2: number, p3: number, dc: number) => {
+                // Defensive parsing to ensure all values are numbers
+                const numP1 = Number(p1) || 0;
+                const numP2 = Number(p2) || 0;
+                const numP3 = Number(p3) || 0;
+                const numDc = Number(dc) || 0;
 
-                // AC Power
-                const voie = getVoieLetter(source);
+                if (!sourceStr) return;
+                const s = sourceStr.trim().toLowerCase();
+                const voie = getVoieLetter(sourceStr);
+
                 if (voie && validVoies[room].includes(voie)) {
-                    if (!source.toLowerCase().includes('rec')) {
-                         rowData.ac.p1 += p1;
-                         rowData.ac.p2 += p2;
-                         rowData.ac.p3 += p3;
-                         rowData.ac.total += p1 + p2 + p3;
+                    const roomNumber = room.slice(-1);
+                    const roomPanelPrefix = `tc.${roomNumber}.`;
+                    const isAcSource = panelConfig[voie]
+                        .filter(panel => panel.name.toLowerCase().startsWith(roomPanelPrefix))
+                        .flatMap(panel => panel.prefixes)
+                        .some(prefix => s.startsWith(prefix.trim().toLowerCase()));
+
+                    if (isAcSource) {
+                        rowData.ac.p1 += numP1;
+                        rowData.ac.p2 += numP2;
+                        rowData.ac.p3 += numP3;
+                        rowData.ac.total += numP1 + numP2 + numP3;
+                    }
+
+                    const isDcSource = (rectifierConfig[voie]?.[room] || []).some(prefix => s.startsWith(prefix.trim().toLowerCase()));
+                    if (isDcSource) {
+                        rowData.dc.total += numDc;
                     }
                 }
-                
-                // DC Power
-                 if (source.toLowerCase().includes('rec')) {
-                    rowData.dc.total += dc;
-                 }
             };
             
-            processVoie(rack.Canalis_Redresseur_Voie1, rack.P_Voie1_Ph1, rack.P_Voie1_Ph2, rack.P_Voie1_Ph3, rack.P_Voie1_DC);
-            processVoie(rack.Canalis_Redresseur_Voie2, rack.P_Voie2_Ph1, rack.P_Voie2_Ph2, rack.P_Voie2_Ph3, rack.P_Voie2_DC);
+            processSingleVoie(rack.Canalis_Redresseur_Voie1, rack.P_Voie1_Ph1, rack.P_Voie1_Ph2, rack.P_Voie1_Ph3, rack.P_Voie1_DC);
+            processSingleVoie(rack.Canalis_Redresseur_Voie2, rack.P_Voie2_Ph1, rack.P_Voie2_Ph2, rack.P_Voie2_Ph3, rack.P_Voie2_DC);
         });
 
         return Array.from(rowMap.values());
