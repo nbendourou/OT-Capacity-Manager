@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import type { Rack, Room, OtherConsumersState, OtherConsumersStateMap } from '../types';
+import type { Rack, Room, OtherConsumersState, OtherConsumersStateMap, Capacities } from '../types';
 import { UPSIcon } from './icons';
 
 interface PowerChainsViewProps {
@@ -8,6 +8,7 @@ interface PowerChainsViewProps {
     setOtherConsumers: React.Dispatch<React.SetStateAction<OtherConsumersStateMap>>;
     saveData: (racks: Rack[], consumers: OtherConsumersStateMap) => Promise<void>;
     setAppError: (error: string | null) => void;
+    capacities: Capacities;
 }
 
 const rectifierConfig = {
@@ -92,7 +93,7 @@ const PhaseCard: React.FC<{ label: string; load: number; capacity: number }> = (
     const utilization = capacity > 0 ? load / capacity : 0;
     const colorClass =
         utilization > 0.9 ? 'bg-red-800' :
-        utilization > 0.7 ? 'bg-orange-500' : 'bg-green-600';
+        utilization > 0.8 ? 'bg-orange-500' : 'bg-green-600';
 
     return (
         <div className={`p-4 rounded-lg flex flex-col justify-center items-center text-white shadow-md ${colorClass}`}>
@@ -104,7 +105,7 @@ const PhaseCard: React.FC<{ label: string; load: number; capacity: number }> = (
 };
 
 
-const PowerChainsView: React.FC<PowerChainsViewProps> = ({ racks, otherConsumers, setOtherConsumers, saveData, setAppError }) => {
+const PowerChainsView: React.FC<PowerChainsViewProps> = ({ racks, otherConsumers, setOtherConsumers, saveData, setAppError, capacities }) => {
     const [efficiency, setEfficiency] = useState(96);
     const [failedChains, setFailedChains] = useState<Set<'A' | 'B' | 'C'>>(new Set());
     const [isSavingConsumers, setIsSavingConsumers] = useState(false);
@@ -288,8 +289,6 @@ const PowerChainsView: React.FC<PowerChainsViewProps> = ({ racks, otherConsumers
         }
     };
 
-    const capacityPerPhase = 1000 / 3;
-
     return (
         <div>
             <h2 className="text-3xl font-bold text-white mb-6">Power Chain Analysis</h2>
@@ -297,6 +296,8 @@ const PowerChainsView: React.FC<PowerChainsViewProps> = ({ racks, otherConsumers
                 {(['A', 'B', 'C'] as const).map(chain => {
                     const { totalLoad, loadByRoom } = calculationResults[chain];
                     const phases = [totalLoad.p1, totalLoad.p2, totalLoad.p3];
+                    const chainCapacity = chain === 'A' ? capacities.UPS_A_kW : chain === 'B' ? capacities.UPS_B_kW : capacities.UPS_C_kW;
+                    const capacityPerPhase = chainCapacity / 3;
                     const isOverloaded = phases.some(p => p / capacityPerPhase > 0.9);
                     const isFailed = failedChains.has(chain);
                     const isAnotherChainFailed = failedChains.size > 0 && !isFailed;

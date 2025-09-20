@@ -1,14 +1,16 @@
 import React from 'react';
 import type { Room } from '../types';
-import { AddIcon, PowerChainIcon, DashboardIcon, SaveIcon, RoomIcon, RefreshIcon, ReportIcon } from './icons';
+import { GoogleSheetIcon, PowerChainIcon, DashboardIcon, SaveIcon, RoomIcon, RefreshIcon, ReportIcon, SettingsIcon } from './icons';
+
+// FIXME: Replace with your actual Google Sheet URL
+const GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRZ-VlvSj3ofI0V2GRwpjgBXRMnZRcp1Hotwg8F-NrvAvaLG2FNbdH5xQs3CjYTgdkLC06gIfJQbHe4/pubhtml";
 
 interface HeaderProps {
     currentView: string;
-    onNavigate: (view: 'dashboard' | 'ITN1' | 'ITN2' | 'ITN3' | 'powerChains' | 'reporting') => void;
+    onNavigate: (view: 'dashboard' | 'ITN1' | 'ITN2' | 'ITN3' | 'powerChains' | 'reporting' | 'capacities') => void;
     onRefreshData: () => void;
     onSaveData: () => void;
     isSaving: boolean;
-    onAddRack: () => void;
     searchTerm: string;
     setSearchTerm: (term: string) => void;
     filterRoom: Room | 'all';
@@ -19,11 +21,11 @@ interface HeaderProps {
 }
 
 const Header: React.FC<HeaderProps> = ({
-    currentView, onNavigate, onRefreshData, onSaveData, isSaving, onAddRack,
+    currentView, onNavigate, onRefreshData, onSaveData, isSaving,
     searchTerm, setSearchTerm, filterRoom, setFilterRoom, filterRow, setFilterRow, uniqueRows
 }) => {
 
-    const NavButton = ({ view, label, icon }: { view: 'dashboard' | 'ITN1' | 'ITN2' | 'ITN3' | 'powerChains' | 'reporting', label: string, icon: JSX.Element }) => (
+    const NavButton = ({ view, label, icon }: { view: 'dashboard' | 'ITN1' | 'ITN2' | 'ITN3' | 'powerChains' | 'reporting' | 'capacities', label: string, icon: JSX.Element }) => (
         <button
             onClick={() => onNavigate(view)}
             className={`flex items-center px-4 py-2 text-sm font-medium rounded-md transition-colors duration-200 ${
@@ -50,12 +52,13 @@ const Header: React.FC<HeaderProps> = ({
                             <NavButton view="ITN3" label="ITN3" icon={<RoomIcon />} />
                             <NavButton view="powerChains" label="Power Chains" icon={<PowerChainIcon />} />
                             <NavButton view="reporting" label="Reporting" icon={<ReportIcon />} />
+                            <NavButton view="capacities" label="Capacities" icon={<SettingsIcon />} />
                         </nav>
                     </div>
                     <div className="flex items-center space-x-2">
-                        <button onClick={onAddRack} className="flex items-center bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-md transition-colors duration-200">
-                           <AddIcon /> <span className="ml-2 hidden sm:inline">Add Rack</span>
-                        </button>
+                        <a href={GOOGLE_SHEET_URL} target="_blank" rel="noopener noreferrer" className="flex items-center bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-md transition-colors duration-200">
+                           <GoogleSheetIcon /> <span className="ml-2 hidden sm:inline">Open Sheet</span>
+                        </a>
                         <button onClick={onRefreshData} className="flex items-center bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md transition-colors duration-200">
                            <RefreshIcon /> <span className="ml-2 hidden sm:inline">Refresh Data</span>
                         </button>

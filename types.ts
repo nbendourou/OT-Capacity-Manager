@@ -39,3 +39,14 @@ export type OtherConsumersStateMap = {
     B: OtherConsumersState;
     C: OtherConsumersState;
 };
+
+export interface Capacities {
+    UPS_A_kW: number;
+    UPS_B_kW: number;
+    UPS_C_kW: number;
+    ROOM_CAPACITY_ITN1_kW: number;
+    ROOM_CAPACITY_ITN2_kW: number;
+    ROOM_CAPACITY_ITN3_kW: number;
+    ROW_AC_CAPACITY_kW: number;
+    ROW_DC_CAPACITY_kW: number;
+}

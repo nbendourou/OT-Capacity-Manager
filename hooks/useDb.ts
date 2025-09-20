@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import type { Rack, OtherConsumersStateMap } from '../types';
+import { flexibleParseFloat } from '../utils';
 
 declare const initSqlJs: any;
 declare const XLSX: any;
@@ -39,19 +40,6 @@ const HEADER_ALIASES: { [key in keyof Partial<Rack>]?: string[] } = {
     P_Voie2_Ph2: ['p_voie2_ph2', 'pvoie2ph2', 'power_v2_p2', 'puissance_voie2_ph2'],
     P_Voie2_Ph3: ['p_voie2_ph3', 'pvoie2ph3', 'power_v2_p3', 'puissance_voie2_ph3'],
     P_Voie2_DC: ['p_voie2_dc', 'pvoie2dc', 'power_v2_dc', 'puissance_voie2_dc'],
-};
-
-const flexibleParseFloat = (value: any): number => {
-    if (value === null || value === undefined) return 0;
-    let strValue = String(value).trim();
-    if (strValue === '') return 0;
-    strValue = strValue.replace(',', '.');
-    const dotCount = (strValue.match(/\./g) || []).length;
-    if (dotCount > 1) {
-        strValue = strValue.replace(/\.(?=.*\.)/g, '');
-    }
-    const num = parseFloat(strValue);
-    return isNaN(num) ? 0 : num;
 };
 
 export const useDb = () => {

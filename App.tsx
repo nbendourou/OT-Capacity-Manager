@@ -6,23 +6,26 @@ import RackDetailModal from './components/RackDetailModal';
 import PowerChainsView from './components/TdhqPanel';
 import Reporting from './components/Reporting';
 import { useGoogleSheet } from './hooks/useGoogleSheet';
-import type { Rack, Room } from './types';
+import type { Rack, Room, Capacities } from './types';
 import WelcomeScreen from './components/WelcomeScreen';
+import CapacitiesView from './components/CapacitiesView';
 
-type View = 'dashboard' | 'ITN1' | 'ITN2' | 'ITN3' | 'powerChains' | 'reporting';
+type View = 'dashboard' | 'ITN1' | 'ITN2' | 'ITN3' | 'powerChains' | 'reporting' | 'capacities';
 
 function App() {
     const { 
         racks, 
-        otherConsumers, 
+        otherConsumers,
+        capacities,
         loading, 
         error, 
         loadData, 
-        addRack, 
         updateRack, 
         deleteRack, 
         saveData,
+        saveCapacities,
         setOtherConsumers,
+        setCapacities,
     } = useGoogleSheet();
     
     const [currentView, setCurrentView] = useState<View>('dashboard');
@@ -30,8 +33,7 @@ function App() {
     const [isSaving, setIsSaving] = useState(false);
 
     const [selectedRack, setSelectedRack] = useState<Rack | null>(null);
-    const [isAddingRack, setIsAddingRack] = useState(false);
-
+    
     const [searchTerm, setSearchTerm] = useState('');
     const [filterRoom, setFilterRoom] = useState<Room | 'all'>('all');
     const [filterRow, setFilterRow] = useState('');
@@ -54,15 +56,15 @@ function App() {
     }, [loadData]);
     
     const handleSaveData = async () => {
-        if (racks.length === 0) {
-            alert("There is no data to save.");
+        if (racks.length === 0 && Object.values(otherConsumers).every(c => c.acP1 === 0 && c.acP2 === 0 && c.acP3 === 0 && c.dc === 0)) {
+            alert("There is no inventory data to save.");
             return;
         }
         setAppError(null);
         setIsSaving(true);
         try {
             await saveData(racks, otherConsumers);
-            alert("Data has been successfully saved to your Google Sheet!");
+            alert("Racks and Consumers data has been successfully saved to your Google Sheet!");
         } catch (e: any) {
             setAppError(`Save failed: ${e.message}`);
         } finally {
@@ -70,29 +72,18 @@ function App() {
         }
     };
     
-    const handleAddRack = () => {
-        setIsAddingRack(true);
-        setSelectedRack(null);
-    };
-
     const handleSelectRack = (rack: Rack) => {
         setSelectedRack(rack);
-        setIsAddingRack(false);
     };
 
     const handleCloseModal = () => {
         setSelectedRack(null);
-        setIsAddingRack(false);
     };
 
-    const handleSaveRack = async (rackData: Rack | Omit<Rack, 'id'>) => {
+    const handleSaveRack = async (rackData: Rack) => {
         setAppError(null);
         try {
-            if ('id' in rackData) {
-                updateRack(rackData as Rack);
-            } else {
-                addRack(rackData);
-            }
+            updateRack(rackData);
             handleCloseModal();
         } catch (e: any) {
             setAppError(e.message);
@@ -140,27 +131,29 @@ function App() {
             ? racks.filter(r => r.Salle === currentView)
             : filteredRacks;
         
-        if (racks.length === 0 && !loading && !error) {
+        if (racks.length === 0 && !loading && !appError) {
              return <WelcomeScreen onReload={handleRefreshData} />;
         }
         
-        if (racks.length === 0 && !['dashboard', 'reporting'].includes(currentView)) {
+        if (racks.length === 0 && !['dashboard', 'reporting', 'capacities'].includes(currentView)) {
              setCurrentView('dashboard');
         }
 
         switch (currentView) {
             case 'dashboard':
-                return <Dashboard racks={filteredRacks} onRackClick={handleSelectRack} otherConsumers={otherConsumers} />;
+                return <Dashboard racks={filteredRacks} onRackClick={handleSelectRack} otherConsumers={otherConsumers} capacities={capacities} />;
             case 'ITN1':
             case 'ITN2':
             case 'ITN3':
-                return <RoomPowerView racks={roomRacks} room={currentView} onRackClick={handleSelectRack} />;
+                return <RoomPowerView racks={roomRacks} room={currentView} onRackClick={handleSelectRack} capacities={capacities} />;
             case 'powerChains':
-                return <PowerChainsView racks={racks} otherConsumers={otherConsumers} setOtherConsumers={setOtherConsumers} saveData={saveData} setAppError={setAppError} />;
+                return <PowerChainsView racks={racks} otherConsumers={otherConsumers} setOtherConsumers={setOtherConsumers} saveData={saveData} setAppError={setAppError} capacities={capacities} />;
             case 'reporting':
-                return <Reporting racks={racks} />;
+                return <Reporting racks={racks} capacities={capacities} />;
+            case 'capacities':
+                return <CapacitiesView capacities={capacities} onCapacitiesChange={setCapacities} onSave={saveCapacities} />;
             default:
-                return <Dashboard racks={filteredRacks} onRackClick={handleSelectRack} otherConsumers={otherConsumers} />;
+                return <Dashboard racks={filteredRacks} onRackClick={handleSelectRack} otherConsumers={otherConsumers} capacities={capacities} />;
         }
     };
 
@@ -172,7 +165,6 @@ function App() {
                 onRefreshData={handleRefreshData}
                 onSaveData={handleSaveData}
                 isSaving={isSaving}
-                onAddRack={handleAddRack}
                 searchTerm={searchTerm}
                 setSearchTerm={setSearchTerm}
                 filterRoom={filterRoom}
@@ -184,19 +176,18 @@ function App() {
 
             <main className="container mx-auto p-4">
                 {(loading || isSaving) && <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"><div className="text-xl">{isSaving ? 'Saving data to Google Sheet...' : 'Loading data...'}</div></div>}
-                {appError && <div className="bg-red-800 border border-red-600 text-white p-4 rounded-lg mb-4" role="alert" onClick={() => setAppError(null)}>{appError}</div>}
+                {appError && <div className="bg-red-800 border border-red-600 text-white p-4 rounded-lg mb-4 whitespace-pre-wrap" role="alert" onClick={() => setAppError(null)}>{appError}</div>}
                  
-                {racks.length === 0 && !loading && error ? (
-                    <WelcomeScreen onReload={handleRefreshData} error={error} />
+                {racks.length === 0 && !loading && appError ? (
+                    <WelcomeScreen onReload={handleRefreshData} error={appError} />
                 ) : (
                     renderView()
                 )}
             </main>
 
-            {(selectedRack || isAddingRack) && (
+            {selectedRack && (
                 <RackDetailModal
                     rack={selectedRack}
-                    isAdding={isAddingRack}
                     onClose={handleCloseModal}
                     onSave={handleSaveRack}
                     onDelete={handleDeleteRack}

@@ -2,21 +2,14 @@ import React, { useState, useEffect, useMemo } from 'react';
 import type { Rack, Room } from '../types';
 import Modal from './common/Modal';
 import { DeleteIcon, SaveIcon } from './icons';
+import { flexibleParseFloat } from '../utils';
 
 interface RackDetailModalProps {
-    rack: Rack | null;
-    isAdding: boolean;
+    rack: Rack;
     onClose: () => void;
-    onSave: (rack: any) => void;
+    onSave: (rack: Rack) => void;
     onDelete: (rack: Rack) => void;
 }
-
-const emptyRack: Omit<Rack, 'id'> = {
-    Salle: 'ITN1', Rack: '', Rangée: '', Num_Rack: '', Designation: '', Porteur: '', Dimensions: '',
-    Largeur_mm: 0, Alimentation: '', Phase: '', PDU: '', Puissance_PDU: 0, Moyenne_Capacitaire_Rack: 0,
-    Canalis_Redresseur_Voie1: '', Canalis_Redresseur_Voie2: '', P_Voie1_Ph1: 0, P_Voie1_Ph2: 0,
-    P_Voie1_Ph3: 0, P_Voie1_DC: 0, P_Voie2_Ph1: 0, P_Voie2_Ph2: 0, P_Voie2_Ph3: 0, P_Voie2_DC: 0,
-};
 
 // Define which fields should be treated as numbers.
 const NUMERIC_FIELDS: (keyof Rack)[] = [
@@ -24,25 +17,15 @@ const NUMERIC_FIELDS: (keyof Rack)[] = [
     'P_Voie1_Ph3', 'P_Voie1_DC', 'P_Voie2_Ph1', 'P_Voie2_Ph2', 'P_Voie2_Ph3', 'P_Voie2_DC'
 ];
 
-// Robustly parse a value into a number, handling various formats.
-const flexibleParseFloat = (value: any): number => {
-    if (value === null || value === undefined) return 0;
-    let strValue = String(value).trim();
-    if (strValue === '') return 0;
-    strValue = strValue.replace(',', '.'); // Handle French decimal format
-    const num = parseFloat(strValue);
-    return isNaN(num) ? 0 : num;
-};
-
-
-const RackDetailModal: React.FC<RackDetailModalProps> = ({ rack, isAdding, onClose, onSave, onDelete }) => {
-    const [formData, setFormData] = useState<Rack | Omit<Rack, 'id'>>(isAdding ? emptyRack : rack!);
-    const [isEditing, setIsEditing] = useState(isAdding);
+const RackDetailModal: React.FC<RackDetailModalProps> = ({ rack, onClose, onSave, onDelete }) => {
+    const [formData, setFormData] = useState<Rack>({ ...rack });
+    const [isEditing, setIsEditing] = useState(false);
 
     useEffect(() => {
-        setFormData(isAdding ? emptyRack : rack!);
-        setIsEditing(isAdding);
-    }, [rack, isAdding]);
+        // Use a copy of the rack data to prevent direct state mutation.
+        setFormData({ ...rack });
+        setIsEditing(false);
+    }, [rack]);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value } = e.target;
@@ -50,11 +33,6 @@ const RackDetailModal: React.FC<RackDetailModalProps> = ({ rack, isAdding, onClo
     };
 
     const handleSave = () => {
-        if (!formData.Rack) {
-            alert("Rack identifier is required.");
-            return;
-        }
-
         // Create a copy to sanitize before saving.
         const dataToSave = { ...formData };
 
@@ -86,8 +64,8 @@ const RackDetailModal: React.FC<RackDetailModalProps> = ({ rack, isAdding, onClo
                     ) : (
                     <input
                         type={type} id={name} name={name} value={value} onChange={handleChange}
-                        disabled={!isAdding && name === 'Rack'}
-                        className={`col-span-2 bg-gray-700 border border-gray-600 rounded-md p-2 text-sm focus:ring-blue-500 focus:border-blue-500 ${(!isAdding && name === 'Rack') ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        disabled={name === 'Rack' || name === 'Salle'}
+                        className={`col-span-2 bg-gray-700 border border-gray-600 rounded-md p-2 text-sm focus:ring-blue-500 focus:border-blue-500 ${(name === 'Rack' || name === 'Salle') ? 'opacity-50 cursor-not-allowed' : ''}`}
                     />)
                 ) : (
                     <p className="col-span-2 text-sm text-white bg-gray-900/50 p-2 rounded-md">{String(value)}</p>
@@ -96,13 +74,13 @@ const RackDetailModal: React.FC<RackDetailModalProps> = ({ rack, isAdding, onClo
         );
     };
 
-    const title = isAdding ? "Add New Rack" : `Rack Details: ${rack?.Rack}`;
+    const title = `Rack Details: ${rack.Rack}`;
 
     return (
         <Modal title={title} onClose={onClose}>
             <div className="space-y-4 max-h-[70vh] overflow-y-auto p-1 pr-4">
                  <div className="flex justify-end -mt-2 mb-2">
-                    {!isAdding && !isEditing && (
+                    {!isEditing && (
                         <button onClick={() => setIsEditing(true)} className="text-sm bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-md transition">
                             Edit
                         </button>
@@ -150,23 +128,17 @@ const RackDetailModal: React.FC<RackDetailModalProps> = ({ rack, isAdding, onClo
             </div>
             <div className="mt-6 pt-4 border-t border-gray-600 flex justify-between items-center">
                 <div>
-                {!isAdding && (
-                     <button onClick={() => onDelete(rack!)} className="flex items-center text-sm bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md transition">
+                     <button onClick={() => onDelete(rack)} className="flex items-center text-sm bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md transition">
                         <DeleteIcon /> <span className="ml-2">Delete</span>
                     </button>
-                )}
                 </div>
                 <div className="flex items-center space-x-4">
                 
                 {isEditing && (
                     <>
                         <button onClick={() => { 
-                            if (isAdding) {
-                                onClose();
-                            } else {
-                                setIsEditing(false);
-                                setFormData(rack!); // Revert changes
-                            }
+                            setIsEditing(false);
+                            setFormData({ ...rack }); // Revert changes using a fresh copy
                         }} className="text-sm bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-md transition">
                             Cancel
                         </button>

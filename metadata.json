@@ -1,5 +1,5 @@
 {
-  "name": "OT Capacity Manager with Google Sheet DB",
+  "name": "OT Capacity Manager with Google Sheet DB Améliorée",
   "description": "A local-first web application for managing data center rack capacity and power consumption. This application runs entirely in the browser using a local SQLite database (via WebAssembly), requiring no internet connection or backend server. It features data import/export, a visual dashboard, detailed room and rack views, and full CRUD capabilities for rack management.",
   "requestFramePermissions": []
 }

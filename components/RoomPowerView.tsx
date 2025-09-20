@@ -1,11 +1,14 @@
-import React, { useState, useMemo, CSSProperties, useEffect } from 'react';
-import type { Rack, Room } from '../types';
-import { PowerIcon } from './icons';
+import React, { useState, useMemo } from 'react';
+import type { Rack, Room, Capacities } from '../types';
+import { MatrixViewIcon, FloorPlanIcon } from './icons';
+import FloorPlanView from './FloorPlanView';
+import { getRackCapacity } from '../utils';
 
 interface RoomPowerViewProps {
     racks: Rack[];
     room: Room;
     onRackClick: (rack: Rack) => void;
+    capacities: Capacities;
 }
 
 // Configuration copied from TdhqPanel for consistency
@@ -43,7 +46,7 @@ const getUtilizationColor = (value: number, capacity: number) => {
     if (capacity === 0) return 'bg-gray-600';
     const utilization = value / capacity;
     if (utilization > 0.9) return 'bg-red-600';
-    if (utilization > 0.7) return 'bg-orange-600';
+    if (utilization > 0.8) return 'bg-orange-600';
     if (utilization > 0) return 'bg-green-600';
     return 'bg-gray-600';
 };
@@ -52,7 +55,7 @@ const getBorderColor = (value: number, capacity: number) => {
     if (capacity <= 0) return 'border-gray-700';
     const utilization = value / capacity;
     if (utilization > 0.9) return 'border-red-500';
-    if (utilization > 0.7) return 'border-orange-500';
+    if (utilization > 0.8) return 'border-orange-500';
     if (utilization > 0) return 'border-green-500';
     return 'border-gray-700';
 };
@@ -87,12 +90,7 @@ const RackCard: React.FC<{
     rack: Rack;
     onClick: () => void;
 }> = ({ rack, onClick }) => {
-    const [powerType, setPowerType] = useState<string>('N/A');
-    const [totalPower, setTotalPower] = useState(0);
-    const [borderColor, setBorderColor] = useState('border-gray-700');
-    const [badgeColor, setBadgeColor] = useState('bg-gray-600');
-
-    useEffect(() => {
+    const { powerType, totalPower, borderColor, badgeColor } = useMemo(() => {
         const hasAC = rack.P_Voie1_Ph1 > 0 || rack.P_Voie1_Ph2 > 0 || rack.P_Voie1_Ph3 > 0 ||
                       rack.P_Voie2_Ph1 > 0 || rack.P_Voie2_Ph2 > 0 || rack.P_Voie2_Ph3 > 0 ||
                       rack.Alimentation.toLowerCase().includes('tri') || rack.Alimentation.toLowerCase().includes('mono') ||
@@ -123,24 +121,27 @@ const RackCard: React.FC<{
             }
         }
         
-        setPowerType(type);
-        setBadgeColor(color);
-        
         const currentTotalPower = rack.P_Voie1_Ph1 + rack.P_Voie1_Ph2 + rack.P_Voie1_Ph3 + rack.P_Voie1_DC +
                                   rack.P_Voie2_Ph1 + rack.P_Voie2_Ph2 + rack.P_Voie2_Ph3 + rack.P_Voie2_DC;
-        setTotalPower(currentTotalPower);
-
+        
+        const capacity = getRackCapacity(rack);
         let border = 'border-gray-700';
-        if (rack.Puissance_PDU > 0) {
+        if (capacity > 0) {
             if (isTri) {
                 const allPhasePower = [rack.P_Voie1_Ph1, rack.P_Voie1_Ph2, rack.P_Voie1_Ph3, rack.P_Voie2_Ph1, rack.P_Voie2_Ph2, rack.P_Voie2_Ph3];
                 const maxPhasePower = Math.max(...allPhasePower);
-                border = getBorderColor(maxPhasePower, rack.Puissance_PDU / 3);
+                border = getBorderColor(maxPhasePower, capacity / 3);
             } else {
-                border = getBorderColor(currentTotalPower, rack.Puissance_PDU);
+                border = getBorderColor(currentTotalPower, capacity);
             }
         }
-        setBorderColor(border);
+        
+        return {
+            powerType: type,
+            totalPower: currentTotalPower,
+            borderColor: border,
+            badgeColor: color
+        };
 
     }, [rack]);
     
@@ -162,7 +163,7 @@ const RackCard: React.FC<{
     );
 };
 
-const RoomPowerView: React.FC<RoomPowerViewProps> = ({ racks, room, onRackClick }) => {
+const MatrixView: React.FC<RoomPowerViewProps> = ({ room, racks, onRackClick, capacities }) => {
     const [expandedRow, setExpandedRow] = useState<string | null>(null);
 
     const validVoies: { [key in Room]: ('A' | 'B' | 'C')[] } = {
@@ -201,7 +202,6 @@ const RoomPowerView: React.FC<RoomPowerViewProps> = ({ racks, room, onRackClick 
             rowData.racks.push(rack);
 
             const processSingleVoie = (sourceStr: string, p1: number, p2: number, p3: number, dc: number) => {
-                // Defensive parsing to ensure all values are numbers
                 const numP1 = Number(p1) || 0;
                 const numP2 = Number(p2) || 0;
                 const numP3 = Number(p3) || 0;
@@ -238,12 +238,12 @@ const RoomPowerView: React.FC<RoomPowerViewProps> = ({ racks, room, onRackClick 
         });
 
         return Array.from(rowMap.values());
-    }, [racks, room]);
+    }, [racks, room, capacities]);
 
     return (
         <div className="space-y-2">
-            <h2 className="text-3xl font-bold text-white mb-4">{room} Power Matrix</h2>
-            {powerByRow.map(({ row, ac, dc, racks }) => {
+            {powerByRow.map(({ row, ac, dc, racks: racksInRow }) => {
+                if (racksInRow.length === 0) return null;
                 const maxAcPhase = Math.max(ac.p1, ac.p2, ac.p3);
                 return (
                     <div key={row} className="bg-gray-800 p-4 rounded-lg">
@@ -254,7 +254,7 @@ const RoomPowerView: React.FC<RoomPowerViewProps> = ({ racks, room, onRackClick 
                                 </div>
                                 <div>
                                     <h3 className="text-xl font-bold">Row {row}</h3>
-                                    <p className="text-sm text-gray-400">{racks.length} Racks</p>
+                                    <p className="text-sm text-gray-400">{racksInRow.length} Racks</p>
                                 </div>
                             </div>
 
@@ -264,19 +264,21 @@ const RoomPowerView: React.FC<RoomPowerViewProps> = ({ racks, room, onRackClick 
                                     <div>P2: {ac.p2.toFixed(1)}kW</div>
                                     <div>P3: {ac.p3.toFixed(1)}kW</div>
                                 </div>
-                                <UtilizationBar value={ac.total} capacity={80} colorValue={maxAcPhase} colorCapacity={80/3} />
+                                <UtilizationBar value={ac.total} capacity={capacities.ROW_AC_CAPACITY_kW} colorValue={maxAcPhase} colorCapacity={capacities.ROW_AC_CAPACITY_kW/3} />
                             </div>
                             <div className="space-y-2">
                                 <div className="text-center text-xs text-gray-300">DC Total: {dc.total.toFixed(1)}kW</div>
-                                <UtilizationBar value={dc.total} capacity={80} />
+                                <UtilizationBar value={dc.total} capacity={capacities.ROW_DC_CAPACITY_kW} />
                             </div>
                         </div>
 
                         {expandedRow === row && (
                             <div className="mt-4 pt-4 border-t border-gray-700">
                                  <div className="grid grid-cols-fill-140 gap-3">
-                                    {racks.sort((a,b) => a.Rack.localeCompare(b.Rack)).map(rack => (
-                                        <RackCard key={rack.id} rack={rack} onClick={() => onRackClick(rack)} />
+                                    {[...racksInRow]
+                                        .sort((a, b) => a.Rack.localeCompare(b.Rack, undefined, { numeric: true }))
+                                        .map(rack => (
+                                            <RackCard key={rack.id} rack={rack} onClick={() => onRackClick(rack)} />
                                     ))}
                                 </div>
                             </div>
@@ -284,6 +286,53 @@ const RoomPowerView: React.FC<RoomPowerViewProps> = ({ racks, room, onRackClick 
                     </div>
                 )
             })}
+        </div>
+    );
+};
+
+const ViewModeButton = ({ label, icon, isActive, onClick }: { label: string, icon: JSX.Element, isActive: boolean, onClick: () => void }) => (
+    <button
+        onClick={onClick}
+        className={`flex items-center px-3 py-1.5 text-sm font-medium rounded-md transition-colors duration-200 ${
+            isActive
+                ? 'bg-blue-600 text-white'
+                : 'text-gray-300 hover:bg-gray-700 hover:text-white'
+        }`}
+    >
+        {icon}
+        <span className="ml-2">{label}</span>
+    </button>
+);
+
+
+const RoomPowerView: React.FC<RoomPowerViewProps> = ({ racks, room, onRackClick, capacities }) => {
+    const [viewMode, setViewMode] = useState<'matrix' | 'floorplan'>('matrix');
+
+    return (
+        <div>
+            <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
+                <h2 className="text-3xl font-bold text-white">{room} Overview</h2>
+                <div className="flex items-center space-x-1 bg-gray-900/50 p-1 rounded-lg">
+                    <ViewModeButton 
+                        label="Matrix"
+                        icon={<MatrixViewIcon />}
+                        isActive={viewMode === 'matrix'}
+                        onClick={() => setViewMode('matrix')}
+                    />
+                    <ViewModeButton 
+                        label="Floor Plan"
+                        icon={<FloorPlanIcon />}
+                        isActive={viewMode === 'floorplan'}
+                        onClick={() => setViewMode('floorplan')}
+                    />
+                </div>
+            </div>
+
+            {viewMode === 'matrix' ? (
+                <MatrixView racks={racks} room={room} onRackClick={onRackClick} capacities={capacities} />
+            ) : (
+                <FloorPlanView racks={racks} room={room} onRackClick={onRackClick} capacities={capacities} />
+            )}
         </div>
     );
 };
